@@ -5,14 +5,7 @@ import matplotlib.pyplot as plt
 from scipy.optimize import minimize
 
 
-# --------------------------------------------------
-'''Gold = ['GLD','IAU'] 
-   Silver / Precious Metals = ['SLV','PPLT']
-   Crude Oil = ['USO', 'SCO'] 
-   Agriculture = ['DBA','CORN']
-   Industrial / Energies = ['CPER','UNG']
-'''
-# --------------------------------------------------
+
 
 tickers = ['GLD','IAU','SLV','PPLT','USO','BNO','DBA','CORN','CPER','UNG']
 
@@ -21,10 +14,15 @@ tickers = ['GLD','IAU','SLV','PPLT','USO','BNO','DBA','CORN','CPER','UNG']
 # 2. Download historical prices
 # --------------------------------------------------
 
-dfs = yf.download(tickers, start = '2020-01-01', end = '2026-01-01')
+dfs = yf.download(
+    tickers,
+    start='2020-01-01',
+    end='2026-01-01',
+    auto_adjust=True
+)
 
 
-prices = dfs['Close']
+prices = dfs['Close'][tickers]
 
 
 # --------------------------------------------------
@@ -90,7 +88,52 @@ def portfolio_variance(weights, cov_matrix):
 
 
 # --------------------------------------------------
-# 8. Function to find minimum-risk portfolio
+# 8. Long-Only Global Minimum Variance Portfolio
+# --------------------------------------------------
+
+initial_weights = np.ones(len(tickers)) / len(tickers)
+
+constraints = {
+    'type': 'eq',
+    'fun': lambda weights: np.sum(weights) - 1
+}
+
+bounds = [(0, 1)] * len(tickers)
+
+long_gmv_result = minimize(
+    portfolio_variance,
+    initial_weights,
+    args=(covar.values,),
+    method='SLSQP',
+    bounds=bounds,
+    constraints=constraints
+)
+
+long_gmv_weights = long_gmv_result.x
+
+long_gmv_return = long_gmv_weights @ annret.values
+
+long_gmv_variance = (
+    long_gmv_weights.T @ covar.values @ long_gmv_weights
+)
+
+long_gmv_volatility = np.sqrt(long_gmv_variance)
+
+
+print("\nLONG-ONLY GLOBAL MINIMUM VARIANCE PORTFOLIO")
+print("-----------------------------------")
+
+for ticker, weight in zip(tickers, long_gmv_weights):
+    print(f"{ticker}: {weight:.4f}")
+
+print(f"\nExpected Return: {long_gmv_return:.4f}")
+print(f"Variance: {long_gmv_variance:.4f}")
+print(f"Volatility: {long_gmv_volatility:.4f}")
+print(f"Sum of Weights: {long_gmv_weights.sum():.4f}")
+
+
+# --------------------------------------------------
+# 9. Function to find minimum-risk portfolio
 #    for a given target return
 # --------------------------------------------------
 
@@ -126,7 +169,7 @@ def optimize_portfolio(target_return):
 
 
 # --------------------------------------------------
-# 9. Generate the Efficient Frontier
+# 10. Generate the Efficient Frontier
 # --------------------------------------------------
 
 minimum_return = annret.min()
@@ -163,17 +206,20 @@ for target_return in target_returns:
             portfolio_variance_value
         )
 
-        frontier_returns.append(portfolio_return)
+        # The paper only uses the efficient upper branch.
+        if portfolio_return >= long_gmv_return:
 
-        frontier_volatilities.append(
-            portfolio_volatility
-        )
+            frontier_returns.append(portfolio_return)
 
-        frontier_weights.append(weights)
+            frontier_volatilities.append(
+                portfolio_volatility
+            )
+
+            frontier_weights.append(weights)
 
 
 # --------------------------------------------------
-# 10. Find Maximum Sharpe Ratio Portfolio
+# 11. Find Maximum Sharpe Ratio Portfolio
 # --------------------------------------------------
 
 # You can change this later to the risk-free rate
@@ -200,16 +246,6 @@ def negative_sharpe(weights):
     ) / portfolio_volatility
 
     return -sharpe_ratio
-
-
-constraints = {
-    'type': 'eq',
-    'fun': lambda weights: np.sum(weights) - 1
-}
-
-bounds = [(0, 1)] * len(tickers)
-
-initial_weights = np.ones(len(tickers)) / len(tickers)
 
 
 sharpe_result = minimize(
@@ -268,7 +304,7 @@ print(
 
 
 # --------------------------------------------------
-# 11. Plot Efficient Frontier
+# 12. Plot Efficient Frontier
 # --------------------------------------------------
 
 plt.figure(figsize=(10, 6))
@@ -280,11 +316,11 @@ plt.plot(
 )
 
 plt.scatter(
-    gmv_volatility,
-    gmv_return,
+    long_gmv_volatility,
+    long_gmv_return,
     marker='o',
     s=100,
-    label='Global Minimum Variance'
+    label='Long-Only GMV'
 )
 
 plt.scatter(
@@ -303,5 +339,23 @@ plt.title(
 
 plt.legend()
 plt.grid()
+plt.tight_layout()
+plt.savefig('efficient_frontier.png', dpi=300)
+
+
+# --------------------------------------------------
+# 13. Plot Correlation Matrix
+# --------------------------------------------------
+
+correlation = ret.corr()
+
+plt.figure(figsize=(8, 6))
+plt.imshow(correlation, cmap='coolwarm', vmin=-1, vmax=1)
+plt.colorbar(label='Correlation')
+plt.xticks(range(len(tickers)), tickers, rotation=45)
+plt.yticks(range(len(tickers)), tickers)
+plt.title('Commodity ETF Correlation Matrix')
+plt.tight_layout()
+plt.savefig('correlation_matrix.png', dpi=300)
 
 plt.show()
